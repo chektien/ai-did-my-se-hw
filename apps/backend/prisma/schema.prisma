@@ -1,0 +1,274 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CUSTOMER
+  STAFF
+  MANAGER
+}
+
+enum VehicleStatus {
+  AVAILABLE
+  RENTED
+  MAINTENANCE
+  RETIRED
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  CHECKED_OUT
+  RETURNED
+}
+
+enum PaymentKind {
+  HOLDING
+  FULL
+  DEPOSIT
+  REFUND
+  FEE
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  REFUNDED
+  VOID
+}
+
+enum ReturnStage {
+  INSPECTION
+  REPAIR
+  SERVICE
+  CLEANING
+  VALUATION
+  COMPLETE
+}
+
+enum ValuationDecision {
+  RETURN_TO_INVENTORY
+  RETIRE
+  WRITE_OFF
+}
+
+enum SourceCategory {
+  LONG_CREDIT
+  QUICK_TURNAROUND
+  NEW_UNTESTED
+}
+
+enum ItemType {
+  VEHICLE
+  ADDON
+}
+
+model User {
+  id              String      @id @default(cuid())
+  email           String      @unique
+  passwordHash    String
+  name            String?
+  phone           String?
+  dob             DateTime?
+  licenseIssuedAt DateTime?
+  role            UserRole    @default(CUSTOMER)
+  bookings        Booking[]
+  checkouts       Checkout[]
+  returnProcesses ReturnProcess[]
+}
+
+model VehicleCategory {
+  id            String    @id @default(cuid())
+  name          String   @unique
+  description   String?
+  baseDailyRate Decimal?  @db.Decimal(10, 2)
+  vehicles      Vehicle[]
+}
+
+model Vehicle {
+  id           String        @id @default(cuid())
+  vin          String?       @unique
+  plate        String        @unique
+  make         String
+  model        String
+  year         Int
+  color        String
+  seats        Int
+  bootCapacity String?
+  dailyRate    Decimal       @db.Decimal(10, 2)
+  mileage      Int           @default(0)
+  location     String?
+  status       VehicleStatus @default(AVAILABLE)
+  categoryId   String?
+  category     VehicleCategory? @relation(fields: [categoryId], references: [id])
+  bookings     Booking[]
+}
+
+model Addon {
+  id              String         @id @default(cuid())
+  name            String   @unique
+  pricePerRental  Decimal        @db.Decimal(10, 2)
+  stock           Int            @default(0)
+  active          Boolean        @default(true)
+  bookingAddons   BookingAddon[]
+}
+
+model InsurancePlan {
+  id           String   @id @default(cuid())
+  name         String   @unique
+  pricePerDay  Decimal  @db.Decimal(10, 2)
+  kmLimit      Int?
+  includesChips Boolean @default(false)
+  includesCdw  Boolean @default(false)
+  unlimitedKm  Boolean @default(false)
+  active       Boolean @default(true)
+  bookings     Booking[]
+}
+
+model Booking {
+  id           String         @id @default(cuid())
+  userId       String
+  vehicleId    String
+  insurancePlanId String
+  startAt      DateTime
+  endAt        DateTime
+  pickupAt     DateTime
+  returnAt     DateTime
+  status       BookingStatus @default(PENDING)
+  totalQuote   Decimal       @db.Decimal(10, 2)
+  deposit      Decimal       @db.Decimal(10, 2)
+  holdingFee   Decimal       @db.Decimal(10, 2)
+  payFullUpfront Boolean      @default(false)
+  createdAt    DateTime       @default(now())
+
+  user         User           @relation(fields: [userId], references: [id])
+  vehicle      Vehicle        @relation(fields: [vehicleId], references: [id])
+  insurancePlan InsurancePlan @relation(fields: [insurancePlanId], references: [id])
+  drivers      BookingDriver[]
+  addons       BookingAddon[]
+  payments     Payment[]
+  checkout     Checkout?
+  returnProcess ReturnProcess?
+}
+
+model BookingDriver {
+  id              String   @id @default(cuid())
+  bookingId       String
+  name            String
+  licenseNo       String
+  licenseIssuedAt DateTime
+  dob             DateTime
+  booking         Booking  @relation(fields: [bookingId], references: [id])
+}
+
+model BookingAddon {
+  id         String   @id @default(cuid())
+  bookingId  String
+  addonId    String
+  quantity   Int
+  price      Decimal  @db.Decimal(10, 2)
+  booking    Booking  @relation(fields: [bookingId], references: [id])
+  addon      Addon    @relation(fields: [addonId], references: [id])
+}
+
+model Payment {
+  id         String        @id @default(cuid())
+  bookingId  String
+  amount     Decimal       @db.Decimal(10, 2)
+  kind       PaymentKind
+  status     PaymentStatus @default(PAID)
+  createdAt  DateTime      @default(now())
+  booking    Booking       @relation(fields: [bookingId], references: [id])
+}
+
+model Checkout {
+  id          String   @id @default(cuid())
+  bookingId   String  @unique
+  staffId     String?
+  signedAt    DateTime
+  checklist   Json
+  mileageOut  Int
+  fuelLevel   String
+  booking     Booking  @relation(fields: [bookingId], references: [id])
+  staff       User?    @relation(fields: [staffId], references: [id])
+}
+
+model ReturnProcess {
+  id            String      @id @default(cuid())
+  bookingId     String      @unique
+  staffId       String?
+  returnedAt    DateTime
+  mileageIn     Int
+  fuelLevelIn   String
+  damageNotes   String?
+  stage         ReturnStage @default(INSPECTION)
+  lateFee       Decimal     @db.Decimal(10, 2) @default(0)
+  fuelCharge    Decimal     @db.Decimal(10, 2) @default(0)
+  overageCharge Decimal     @db.Decimal(10, 2) @default(0)
+
+  booking       Booking     @relation(fields: [bookingId], references: [id])
+  staff         User?       @relation(fields: [staffId], references: [id])
+  repairItems   RepairItem[]
+  serviceItems  ServiceItem[]
+  cleaningItems CleaningItem[]
+  valuation     Valuation?
+}
+
+model RepairItem {
+  id              String   @id @default(cuid())
+  returnProcessId String
+  description     String
+  cost            Decimal  @db.Decimal(10, 2)
+  returnProcess   ReturnProcess @relation(fields: [returnProcessId], references: [id])
+}
+
+model ServiceItem {
+  id              String   @id @default(cuid())
+  returnProcessId String
+  description     String
+  cost            Decimal  @db.Decimal(10, 2) @default(0)
+  completedAt     DateTime?
+  returnProcess   ReturnProcess @relation(fields: [returnProcessId], references: [id])
+}
+
+model CleaningItem {
+  id              String   @id @default(cuid())
+  returnProcessId String
+  description     String
+  completedAt     DateTime?
+  returnProcess   ReturnProcess @relation(fields: [returnProcessId], references: [id])
+}
+
+model Valuation {
+  id              String   @id @default(cuid())
+  returnProcessId String   @unique
+  assessedValue   Decimal  @db.Decimal(10, 2)
+  decision        ValuationDecision
+  remarks         String?
+  returnProcess   ReturnProcess @relation(fields: [returnProcessId], references: [id])
+}
+
+model InventorySource {
+  id           String      @id @default(cuid())
+  name         String   @unique
+  category     SourceCategory
+  contact      String?
+  procurements Procurement[]
+}
+
+model Procurement {
+  id         String   @id @default(cuid())
+  sourceId   String
+  itemType   ItemType
+  itemName   String
+  quantity   Int
+  cost       Decimal  @db.Decimal(10, 2)
+  createdAt  DateTime @default(now())
+  source     InventorySource @relation(fields: [sourceId], references: [id])
+}
